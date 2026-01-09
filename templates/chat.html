@@ -2,6 +2,7 @@
 <html lang="hr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Soba: {{ room }}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
@@ -11,9 +12,14 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>
         <h1 class="h5 mb-0">Soba: <span class="text-primary">{{ room }}</span></h1>
-        <div class="text-muted small">Korisnik: {{ username }}</div>
+        <div class="text-muted small">Korisnik: <span id="meName">{{ username }}</span></div>
       </div>
-      <a class="btn btn-outline-secondary btn-sm" href="/leave" id="leaveBtn">Izađi</a>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar">
+          Online / Postavke
+        </button>
+        <a class="btn btn-outline-secondary btn-sm" href="/leave" id="leaveBtn">Izađi</a>
+      </div>
     </div>
 
     <div class="card shadow-sm">
@@ -28,10 +34,60 @@
     </div>
   </div>
 
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="sidebar">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title">Online i postavke</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div class="mb-4">
+        <div class="fw-semibold mb-2">Moj profil</div>
+
+        <div class="mb-2">
+          <label class="form-label small">Korisničko ime</label>
+          <input id="profileUsername" class="form-control" value="{{ username }}" autocomplete="off">
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small">Boja imena</label>
+            <input id="nameColor" type="color" class="form-control form-control-color w-100" value="#0d6efd">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Boja balončića</label>
+            <input id="bubbleColor" type="color" class="form-control form-control-color w-100" value="#f1f3f5">
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label small">Avatar (slika)</label>
+          <input id="avatarFile" type="file" class="form-control" accept="image/*">
+          <div class="form-text">Max 5MB. Sprema se u static/uploads.</div>
+        </div>
+
+        <button id="saveProfile" class="btn btn-primary w-100" type="button">Spremi</button>
+      </div>
+
+      <div>
+        <div class="fw-semibold mb-2">Online korisnici</div>
+        <div id="userList" class="list-group"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
-    const username = {{ username|tojson }};
     const room = {{ room|tojson }};
+    let username = {{ username|tojson }};
+    let mySid = null;
+
+    let profile = {
+      username,
+      nameColor: "#0d6efd",
+      bubbleColor: "#f1f3f5",
+      avatarUrl: ""
+    };
 
     const socket = io();
     const messages = document.getElementById("messages");
@@ -39,38 +95,14 @@
     const input = document.getElementById("msgInput");
     const leaveBtn = document.getElementById("leaveBtn");
 
-    function dodajLiniju(html) {
-      const div = document.createElement("div");
-      div.innerHTML = html;
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
-    }
+    const userList = document.getElementById("userList");
+    const meName = document.getElementById("meName");
 
-    socket.on("connect", () => {
-      socket.emit("join", { username, room });
-    });
-
-    socket.on("system", data => {
-      dodajLiniju(`<div class="system-msg">${escapeHtml(data.msg)}</div>`);
-    });
-
-    socket.on("chat_message", data => {
-      dodajLiniju(
-        `<div class="msg-line"><strong>${escapeHtml(data.username)}</strong>: ${escapeHtml(data.msg)}</div>`
-      );
-    });
-
-    form.addEventListener("submit", e => {
-      e.preventDefault();
-      const msg = input.value.trim();
-      if (!msg) return;
-      socket.emit("chat_message", { username, room, msg });
-      input.value = "";
-    });
-
-    leaveBtn.addEventListener("click", () => {
-      socket.emit("disconnect_request", { username, room });
-    });
+    const profileUsername = document.getElementById("profileUsername");
+    const nameColor = document.getElementById("nameColor");
+    const bubbleColor = document.getElementById("bubbleColor");
+    const avatarFile = document.getElementById("avatarFile");
+    const saveProfile = document.getElementById("saveProfile");
 
     function escapeHtml(text) {
       return text
@@ -80,6 +112,145 @@
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
     }
+
+    function addSystem(msg) {
+      const div = document.createElement("div");
+      div.className = "system-msg";
+      div.textContent = msg;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function addBubble({ sid, user, msg }) {
+      const isMe = (sid && mySid && sid === mySid);
+
+      const row = document.createElement("div");
+      row.className = "bubble-row " + (isMe ? "me" : "other");
+
+      const avatar = document.createElement("img");
+      avatar.className = "avatar";
+      avatar.alt = "avatar";
+      avatar.src = user.avatarUrl ? user.avatarUrl : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23dee2e6'/%3E%3Ctext x='50%25' y='55%25' text-anchor='middle' font-size='28' fill='%236c757d' font-family='Arial'%3F%3E%3F%3C/text%3E%3C/svg%3E";
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.style.background = user.bubbleColor || "#f1f3f5";
+
+      const name = document.createElement("div");
+      name.className = "bubble-name";
+      name.style.color = user.nameColor || "#0d6efd";
+      name.textContent = user.username || "Korisnik";
+
+      const text = document.createElement("div");
+      text.className = "bubble-text";
+      text.innerHTML = escapeHtml(msg);
+
+      bubble.appendChild(name);
+      bubble.appendChild(text);
+
+      if (isMe) {
+        row.appendChild(bubble);
+        row.appendChild(avatar);
+      } else {
+        row.appendChild(avatar);
+        row.appendChild(bubble);
+      }
+
+      messages.appendChild(row);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function renderUsers(users) {
+      userList.innerHTML = "";
+      users.forEach(u => {
+        const item = document.createElement("div");
+        item.className = "list-group-item d-flex align-items-center gap-2";
+
+        const a = document.createElement("img");
+        a.className = "avatar-sm";
+        a.alt = "avatar";
+        a.src = u.avatarUrl ? u.avatarUrl : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23dee2e6'/%3E%3C/svg%3E";
+
+        const name = document.createElement("div");
+        name.className = "flex-grow-1";
+        name.innerHTML = `<span style="color:${escapeHtml(u.nameColor || "#0d6efd")}">${escapeHtml(u.username)}</span>`;
+
+        const badge = document.createElement("span");
+        badge.className = "badge text-bg-success";
+        badge.textContent = "online";
+
+        item.appendChild(a);
+        item.appendChild(name);
+        item.appendChild(badge);
+
+        userList.appendChild(item);
+      });
+    }
+
+    async function uploadAvatarIfNeeded() {
+      const file = avatarFile.files && avatarFile.files[0];
+      if (!file) return profile.avatarUrl;
+
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await fetch("/upload", { method: "POST", body: fd });
+      const data = await res.json();
+
+      if (!data.ok) {
+        alert(data.error || "Upload nije uspio.");
+        return profile.avatarUrl;
+      }
+      return data.url;
+    }
+
+    socket.on("connect", () => {
+      mySid = socket.id;
+      socket.emit("join", { username, room });
+      socket.emit("update_profile", { room, ...profile });
+    });
+
+    socket.on("system", data => addSystem(data.msg || ""));
+
+    socket.on("chat_message", data => {
+      addBubble({
+        sid: data.sid,
+        user: data.user || { username: "Korisnik", nameColor: "#0d6efd", bubbleColor: "#f1f3f5", avatarUrl: "" },
+        msg: data.msg || ""
+      });
+    });
+
+    socket.on("user_list", data => {
+      const users = (data && data.users) ? data.users : [];
+      renderUsers(users);
+    });
+
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const msg = input.value.trim();
+      if (!msg) return;
+      socket.emit("chat_message", { room, msg });
+      input.value = "";
+      input.focus();
+    });
+
+    leaveBtn.addEventListener("click", () => {
+      socket.emit("disconnect_request", { room });
+    });
+
+    saveProfile.addEventListener("click", async () => {
+      const newName = profileUsername.value.trim();
+      if (newName) {
+        username = newName;
+        profile.username = newName;
+        meName.textContent = newName;
+      }
+      profile.nameColor = nameColor.value || profile.nameColor;
+      profile.bubbleColor = bubbleColor.value || profile.bubbleColor;
+      profile.avatarUrl = await uploadAvatarIfNeeded();
+
+      socket.emit("update_profile", { room, ...profile });
+    });
   </script>
 </body>
 </html>

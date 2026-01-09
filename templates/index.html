@@ -2,6 +2,7 @@
 <html lang="hr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Anno Chat</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
@@ -9,35 +10,66 @@
 <body class="bg-light">
   <div class="container py-5">
     <div class="row justify-content-center">
-      <div class="col-md-6 col-lg-5">
+      <div class="col-md-7 col-lg-6">
         <div class="card shadow-sm">
           <div class="card-body p-4">
-            <h1 class="h4 mb-3">Ulazak u chat sobu</h1>
+            <h1 class="h4 mb-3">Ulazak u chat</h1>
 
             {% if error %}
               <div class="alert alert-danger py-2">{{ error }}</div>
             {% endif %}
 
-            <form method="post" action="/join">
+            <form method="post" action="/join" class="mb-4">
               <div class="mb-3">
                 <label class="form-label">Korisničko ime</label>
                 <input class="form-control" name="username" autocomplete="off" required>
               </div>
 
               <div class="mb-3">
-                <label class="form-label">Naziv sobe</label>
-                <input class="form-control" name="room" autocomplete="off" required>
+                <label class="form-label">Odaberi sobu</label>
+                <select class="form-select" name="room" required>
+                  {% for r in rooms %}
+                    <option value="{{ r }}">{{ r }}</option>
+                  {% endfor %}
+                </select>
               </div>
 
               <button class="btn btn-primary w-100" type="submit">Uđi</button>
-              <p class="text-muted small mt-3 mb-0">
-                Bez registracije i baze podataka (Potpuno anonimno)
-              </p>
             </form>
+
+            <div class="fw-semibold mb-2">Sobe i broj online korisnika</div>
+            <div class="list-group">
+              {% for r in rooms %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <div>{{ r }}</div>
+                  <span class="badge text-bg-success" id="room-{{ loop.index0 }}">{{ stats[r] }}</span>
+                </div>
+              {% endfor %}
+            </div>
+
+            <div class="text-muted small mt-3">Bez registracije i baze podataka.</div>
           </div>
         </div>
       </div>
     </div>
   </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    const rooms = {{ rooms|tojson }};
+    const socket = io();
+
+    socket.on("connect", () => {
+      socket.emit("get_room_stats");
+    });
+
+    socket.on("room_stats", data => {
+      const stats = (data && data.stats) ? data.stats : {};
+      rooms.forEach((r, i) => {
+        const el = document.getElementById("room-" + i);
+        if (el && typeof stats[r] !== "undefined") el.textContent = stats[r];
+      });
+    });
+  </script>
 </body>
 </html>
