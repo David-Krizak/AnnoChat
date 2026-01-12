@@ -66,7 +66,6 @@ http://127.0.0.1:5000
 
 ## Moguća proširenja
 - slanje slika i datoteka
-- prikaz liste aktivnih korisnika
 - dodavanje vremenskih oznaka poruka
 - autentikacija korisnika
 
